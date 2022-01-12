@@ -28,15 +28,16 @@ echo "-------------------------------------------------------------"
 echo "                c14.radpat_pierce_1:     STARTING "
 echo "-------------------------------------------------------------"
 
-set EVENT     = 201812232308
-set DIRSRC    = ./
-set DIRDATA   = ./
-set DIRPLOT   = ./
-set strike    = 265
-set dip       = 15
-set rake      = -8
-set WAVE      = SKKS   # phase of interest:
-set RADIA     = SV   # radiation pattern to plot it on:
+set FILE      = $1
+set EVENT     = `awk '{print $1}' $FILE`
+set DIRSRC    = .
+set DIRDATA   = .
+set DIRPLOT   = .
+set strike    = `awk '{print $2}' $FILE`
+set dip       = `awk '{print $3}' $FILE`
+set rake      = `awk '{print $4}' $FILE`
+set WAVE      = `awk '{print $5}' $FILE`   # phase of interest:
+set RADIA     = SV   # radiation pattePREM_Z,Vp,Vsrn to plot it on:
 
 gfortran $DIRSRC/radiation.f90 -o RADI
 ./RADI << EOF
@@ -51,13 +52,13 @@ foreach comp ( P SH SV )
 end
 
 set NSTA   = 1 
-set ELAT   = -20.2 
-set ELON   = -174.94
-set EZ     = 118.4 
-set EMAG   = 6.4
+set ELAT   = `awk '{print $6}' $FILE`
+set ELON   = `awk '{print $7}' $FILE`
+set EZ     = `awk '{print $8}' $FILE`
+set EMAG   = `awk '{print $9}' $FILE`
 
 # output plot file:
-set OUTFILE = $DIRPLOT/$EVENT.c14.radpat_pierce_$WAVE.ps
+set OUTFILE = $DIRPLOT/$EVENT.c14.radpat_pierce_$WAVE
 
 
 set X    = $WAVE
@@ -89,8 +90,8 @@ set VS = ` awk '$1>='$EZ'-0.05 && $1<='$EZ'+0.05 {print $3}' $REFMOD | awk 'NR==
 # variables.  just make sure taup understands the names
 
 # initiate temporary phase file:
-echo $X >! phase.${X}_$COMP
-echo $X $COMP >! c14_radiation."$X"_"$COMP"
+echo $X > phase.${X}_$COMP
+echo $X $COMP > c14_radiation."$X"_"$COMP"
 # define P or S vel (first letter of phase)
 set TYPE = `echo $X | cut -c1`
 if($TYPE == P ) set VEL = $VP
@@ -108,15 +109,15 @@ gfortran $DIRSRC/radiation_th,az.f -o RADTHAZ
 # # loop: STATIONS
 @ i = 1
 while($i <= $NSTA)
-	echo $i
+	# echo $i
    # grab info for the station
    # set ISTA = ( ` awk ' NR=='$i' {print $3,$5,$9,$10} ' INFIL ` )
-   set DIST = 140.76
-   set AZ   = 316.03338
-   set SLAT = 43.96
-   set SLON = 42.69 #
+   set DIST = `awk '{print $10}' $FILE`
+   set AZ   = `awk '{print $11}' $FILE`
+   set SLAT = `awk '{print $12}' $FILE`
+   set SLON = `awk '{print $13}' $FILE`
    # grab the phase name and ray parameter, put into tmp file:
-   /Users/pattylin/utilties/TauP-2.5.1/bin/taup_time -mod prem -evt $ELAT $ELON -h $EZ -deg $DIST \
+   taup_time -mod prem -evt $ELAT $ELON -h $EZ -deg $DIST \
        -sta $SLAT $SLON  -ph $X | awk ' NR>5 {print $3,$5}'  >! taup.tmp
 
 
@@ -173,10 +174,11 @@ end           # ending the station loop
 # #                   plotting time!
 # # ===========================================
 #
-# echo "c14.radpat_pierce_1: MAKING THE PLOT FILE "
+echo "c14.radpat_pierce_1: MAKING THE PLOT FILE "
 #
+gmt begin $OUTFILE png
 # # make a color palette table for underlying rad pat
-gmt makecpt -Cpolar -T-1/1/0.02 -I -Z >! RAD.cpt
+gmt makecpt -Cpolar -T-1/1/0.02 -I -Z -H > RAD.cpt
 #gmtset COLOR_NAN 0/0/0
 #
 # # set some global parameters
@@ -200,56 +202,58 @@ set HH   = ` echo $EVENT | cut -c9-10 `
 set MIN  = ` echo $EVENT | cut -c11-12 `
 
 # define our projection and starting position
-gmt psbasemap  -R0/360/0/90 -JPa$SIZE -B0 -X$X0 -Y$Y0 -P -K >! $OUTFILE
+gmt basemap  -R0/360/0/90 -JPa$SIZE -B0 -X$X0 -Y$Y0
 
 # background radiation pattern:
-gmt grdimage $COMP.grd -R -JP -CRAD.cpt -P -K -O  >> $OUTFILE
+gmt grdimage $COMP.grd -CRAD.cpt
 # black contour line at radiation amp = zero
 echo "0.0 C" >! CONT
-gmt grdcontour $COMP.grd -R -JP -CCONT -W2/150 -P -K -O >> $OUTFILE
+gmt grdcontour $COMP.grd -CCONT -W2p,150
 # red contour line at radiation amp = -0.1
-set DASH = t8_20:0
+set DASH = -- #t8_20:0
 echo "-0.1 C" >! CONT
-gmt grdcontour $COMP.grd -R -JP -CCONT -W0.5/220/0/0$DASH -P -K -O >> $OUTFILE
-# blue contour line at radiation amp = +0.1
+gmt grdcontour $COMP.grd -CCONT -W0.5p,red,$DASH
+# # blue contour line at radiation amp = +0.1
 echo "0.1 C" >! CONT
-gmt grdcontour $COMP.grd -R -JP -CCONT -W0.5/0/0/200$DASH -P -K -O >> $OUTFILE
-# count the stations for each phase type:
+gmt grdcontour $COMP.grd -CCONT -W0.5p,blue,$DASH
+# # count the stations for each phase type:
 set NP = ` wc phase.${X}_$COMP | awk '{print $1}' `
-echo "0 90 18 0 5 CB $X $COMP n=$NP " >! text.tmp
-# title text of each beach ball:
-gmt pstext text.tmp -R -JP -N -Y0.2i -P -K -O >> $OUTFILE
-# tick marks on balls:
-gmt psbasemap  -R -JP -Bf15wsne -Y-0.2i -P -K -O  >> $OUTFILE
-awk ' NR>1 {print $2,$1}' phase.${X}_$COMP >! theta,az.tmp
-# add piercing points:
-gmt psxy theta,az.tmp -R -JP -Sx0.25i -W1 -P -K -O >> $OUTFILE
-
-# text at the top of page
-gmt pstext  -R0/5/0/5 -JX5i -N -O -P -X2.4i -Y3.0i -K << EOF  >> $OUTFILE
-0.5 5    20 0 0 CB ${MM}/${DD}/$YYYY ${HH}:${MIN} $X and $COMP Radiation Pattern
-0.5 4.75 16 0 4 CB Lat: $ELAT Lon: $ELON Dep:$EZ km Mag: $EMAG
-0.5 4.5  16 0 4 CB Focal Mech: Strike=$strike Dip=$dip Rake=$rake
-0.5 4.25 16 0 6 CB (dashed lines: +/- 10% of maximum)
+echo "0 90 18p,5 0 CB $X $COMP n=$NP " > text.tmp
+# # title text of each beach ball:
+gmt text text.tmp -N -Y0.2i -F+f+a+j
+# # tick marks on balls:
+gmt basemap -R0/360/0/90 -JP -Ba15f15 -Bwsne -Y-0.2i
+awk ' NR>1 {print $2,$1}' phase.${X}_$COMP > theta,az.tmp
+# # add piercing points:
+gmt plot theta,az.tmp -Sx0.25i -W3p
+#
+# # text at the top of page
+gmt text -R0/5/0/5 -JX5i -N -F+f+a+j -X2.4i -Y3.0i << EOF 
+0.5 5    16p,0 0 CB ${MM}/${DD}/$YYYY ${HH}:${MIN} $X and $COMP Radiation Pattern
+0.5 4.75 14p,4 0 CB Lat: $ELAT Lon: $ELON Dep:$EZ km Mag: $EMAG
+0.5 4.5  14p,4 0 CB Focal Mech: Strike=$strike Dip=$dip Rake=$rake
+0.5 4.25 14p,6 0 CB (dashed lines: +/- 10% of maximum)
 EOF
 
-# more text: script name and time stamp
-echo "0.5 4.00 16 0 6 CB SCRIPT: c14.radpat_pierce_1" >! datetag1
-date "+CREATION DATE: %m/%d/%y  %H:%M:%S" >! datetag2
-paste datetag1 datetag2 >! datetag3
-gmt pstext datetag3 -JX -R -N -G0 -O >> $OUTFILE
+gmt colorbar -CRAD.cpt -Dx1.5c/10.2c+w10c/0.3c+jTC+h -Bxaf -By+l"Amplitude" 
+# # more text: script name and time stamp
+# echo "0.5 4.00 16 0 6 CB SCRIPT: c14.radpat_pierce_1" >! datetag1
+# date "+CREATION DATE: %m/%d/%y  %H:%M:%S" >! datetag2
+# paste datetag1 datetag2 >! datetag3
+# gmt pstext datetag3 -JX -R -N -G0 -O >> $OUTFILE
 
+gmt end
 
 
 # clean up
-\rm .gmt* text.tmp theta,az.tmp INFIL datetag?
-\rm phase.* CONT $COMP.grd RAD.cpt
-# # return to our pwd
-# cd $DIRPWD
-#
-# echo "---------------------------------------------------------------------------------"
-# echo "                c14.radpat_pierce_1:   just finished making PLOT FILE : $OUTFILE "
-# echo "---------------------------------------------------------------------------------"
-# echo " "
-#
-#EOF
+mv $EVENT.* $EVENT
+mv c14_radiation.$WAVE* $EVENT
+mv RADTHAZ $EVENT
+mv RAYPAR $EVENT
+mv RADI $EVENT
+mv in.RADTHAZ $EVENT
+rm -f .gmt* text.tmp theta,az.tmp INFIL datetag?
+rm -f phase.* CONT $COMP.grd RAD.cpt
+
+
+# open $EVENT/*png
